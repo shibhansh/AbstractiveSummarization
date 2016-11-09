@@ -34,10 +34,13 @@ function nextBatch()
         local sent_txt = {}
         local sent_smy = {}
 
-        line = file_txt:read()
+        line = file_txt:read():lower()
         while line ~= "" and line~=nil do 
             table.insert(sent_txt,line)
-            line=file_txt:read()
+            line = file_txt:read()
+            if line ~= nil then
+                line = line:lower()
+            end
         end
         table.insert(sentBatch_text,sent_txt)
         
@@ -45,11 +48,16 @@ function nextBatch()
             max_len_text = #sent_txt
         end
 
-        line = file_smy:read()
+        table.insert(sent_smy, '<go>')
+        line = file_smy:read():lower()
         while line ~= "" and line~= nil  do     
             table.insert(sent_smy, line)
             line = file_smy:read()
+            if line~=nil then
+                line = line:lower()
+            end
         end 
+        table.insert(sent_smy, '<eos>')
         table.insert(sentBatch_smy,sent_smy)
         
         if max_len_smy < #sent_smy then
@@ -65,18 +73,31 @@ function nextBatch()
         eosOffset = max_len_text - #sentBatch_text[j] --left paddding
 
         for j2=1,#sentBatch_text[j]do   
-            encoderInputs[j2+eosOffset][j] = Vocab[sentBatch_text[j][j2]]
+            if  Vocab[sentBatch_text[j][j2]] ~= nil then 
+                encoderInputs[j2+eosOffset][j] = Vocab[sentBatch_text[j][j2]]
+            else
+                encoderInputs[j2+eosOffset][j] = Vocab['<unknown>']
+            end
+
         end
 
         --trimmedEosToken = sentBatch_smy[j]:sub(1,-2)
         for j2=1,#sentBatch_smy[j]-1 do
-            decoderInputs[j2][j] = Vocab[sentBatch_smy[j][j2]]
+            if Vocab[sentBatch_smy[j][j2]] ~= nil then 
+                decoderInputs[j2][j] = Vocab[sentBatch_smy[j][j2]]
+            else
+                decoderInputs[j2][j] = Vocab['<unknown>']
+            end
         end
         
 
         --trimmedGoToken = sentBatch_smy[j]:sub(2,-1)
         for j2=2,#sentBatch_smy[j] do
-            decoderTargets[j2-1][j] = Vocab[sentBatch_smy[j][j2]]
+            if Vocab[sentBatch_smy[j][j2]] ~= nil then
+                decoderTargets[j2-1][j] = Vocab[sentBatch_smy[j][j2]]
+            else
+                decoderTargets[j2-1][j] = Vocab['<unknown>']
+            end
         end
     end
     
@@ -105,7 +126,7 @@ feval = function(x_new)
     dl_dx:zero()
 
     --print('---->getting NextBatch()')
-    local encoderInputs, decoderInputs, decoderTargets = nextBatch()
+    encoderInputs, decoderInputs, decoderTargets = nextBatch()
     --print('---->Done getting NextBatch()')
 
     --forward pass
@@ -142,30 +163,63 @@ feval = function(x_new)
     --print('---->encoder backward')
     model.encoder:backward(encoderInputs, encoderOutput:zero())
     --print('---->DONE encoder backward') 
+
+
+    --print(encoderInputs)
+    wordIds, probabilities = model:eval(encoderInputs:select(2,10))
+    for _tmp, ind in ipairs(wordIds) do 
+        local word = Index2Vocab[wordId[1]]
+        print(word)
+    end
+
+    print('---->DONE with feval')
     return loss_x, dl_dx
 end
 
 --*************************************************************
 
 function getVocab()
+    numDocumentsTraversed = 0
     VocabSize = 0
     Vocab = {}
     Index2Vocab = {}
     file_txt=io.open('text_words.csv','r')
     file_smy=io.open('summary_words.csv','r')
 
-    line = file_txt:read()
+    --insert <eos>, <go> and <unknown> tokens
 
+    Vocab['<go>'] = 1
+    Vocab['<eos>'] = 2
+    Vocab['<unknown>'] = 3
+    Index2Vocab[1] = '<go>'
+    Index2Vocab[2] = '<eos>'
+    Index2Vocab[3] = '<unknown>'
+    VocabSize = 3
+
+    line = file_txt:read():lower()
     while line~=nil do
         if Vocab[line] == nil then 
             VocabSize = VocabSize + 1
             Vocab[line] = VocabSize
             Index2Vocab[VocabSize] = line
         end
-        line = file_txt:read()
+        
+       line = file_txt:read()
+       if (line ~= nil) then
+           line=line:lower()
+       end
+
+       if line == "" then
+           numDocumentsTraversed = numDocumentsTraversed +1
+       end
+    
+       if numDocumentsTraversed > numDocuments then 
+           break
+       end
     end
 
-    line = file_smy:read()
+    numDocumentsTraversed = 0
+    line = file_smy:read():lower()
     while line~=nil do 
         if Vocab[line] == nil then
             VocabSize = VocabSize + 1
@@ -173,7 +227,19 @@ function getVocab()
             Index2Vocab[VocabSize] = line
         end
             --print(':::',sentBatch_smy[j][j2],"::",j,j2,#decoderTargets)
+    
         line = file_smy:read()
+        if(line ~= nil) then
+            line=line:lower()
+        end
+       
+        if line == "" then
+           numDocumentsTraversed = numDocumentsTraversed +1
+       end
+
+       if numDocumentsTraversed > numDocuments then 
+           break
+       end
     end
 end
 
@@ -186,6 +252,9 @@ print("Done")
 
 print('Building Model')
 model = Seq2Seq(VocabSize,hiddenSize)
+model.goToken = Vocab['<go>']
+model.eosToken = Vocab['<eos>']
+
 if batchSize > 1 then 
     model.criterion = nn.SequencerCriterion(nn.MaskZeroCriterion(nn.ClassNLLCriterion(),1))
 else
@@ -193,6 +262,7 @@ else
 end
 
 model:cuda()
+
 print('Done')
 
 -- get weights and gradient of loss wrt weights from the model
@@ -200,7 +270,7 @@ print('Getting Parameters')
 x, dl_dx = model:getParameters()
 print('Done')
 
-print('Getting sgd_arams')
+print('Getting sgd_params')
 sgd_params = {
     learningRate = 5e-1,--changed from 1e-2
     learningRateDecay = 1e-4,
@@ -217,7 +287,7 @@ for j=1,10000 do
 	file_smy = io.open('summary_words.csv','r')
 
     
-    for i = 1, 6 do	
+    for i = 1, numDocuments/batchSize do	
 	_, fs = optim.sgd(feval,x, sgd_params)
         
     model.decoder:forget()
