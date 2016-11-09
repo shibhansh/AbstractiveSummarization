@@ -1,0 +1,6 @@
+database.sqlite 
+model_tmp
+data/
+Word2Vec/ 
+word2vec.t7
+
