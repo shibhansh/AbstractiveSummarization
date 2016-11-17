@@ -13,8 +13,8 @@ print('Running with CUDA on GPU')
 file_txt=io.open('text_words.csv','r')
 file_smy=io.open('summary_words.csv','r')
 
-batchSize = 10
-numDocuments = 50
+batchSize = 5
+numDocuments = 20000
 hiddenSize = 1000
 
 print('Begin')
@@ -164,15 +164,60 @@ feval = function(x_new)
     model.encoder:backward(encoderInputs, encoderOutput:zero())
     --print('---->DONE encoder backward') 
 
+    if sgd_params.evalCounter%9 == 0 then
+        test_from_batch_index = (torch.floor(torch.rand(1)*batchSize)+1)[1]
+        print('\n\n\n___________________________________________')
+        str_sent = "" 
+        enc_batch_size = encoderInputs:select(2,test_from_batch_index)
+        for ii = 1,(#enc_batch_size)[1] do
+            if enc_batch_size[ii] ~= 0 then
+                local word = Index2Vocab[enc_batch_size[ii]]
+                str_sent = str_sent .. " " .. word
+            end
+        end
 
-    --print(encoderInputs)
-    wordIds, probabilities = model:eval(encoderInputs:select(2,10))
-    for _tmp, ind in ipairs(wordIds) do 
-        local word = Index2Vocab[wordId[1]]
-        print(word)
+        print("REVIEW:\n" .. str_sent .. '\n_________________________________________')
+        
+        wordIds, probabilities = model:eval(encoderInputs:select(2,test_from_batch_index))
+        str_sent=""
+        
+        str_sent_target = ""
+        
+        tmp = 1
+        tmp_err = 0 
+        for _tmp, ind in ipairs(wordIds) do 
+            local word = Index2Vocab[ind[1]]
+            str_sent = str_sent .." ".. word
+
+            if tmp > (#decoderTargets)[1] then 
+                expected_output = '<out-of-range>'
+            elseif decoderTargets[tmp][test_from_batch_index] ==0 then
+                expected_output = '<0-index>'
+            else
+                expected_output = Index2Vocab[decoderTargets[tmp][test_from_batch_index]]
+                str_sent_target = str_sent_target .. " " .. expected_output
+            end
+
+            
+            if expected_output == Index2Vocab[ind[1]] then
+                tmp_err = tmp_err + 1
+            end
+
+
+            tmp = tmp + 1
+        end
+
+        str_sent_target=""
+        for i =1,(#decoderTargets)[1] do
+            if decoderTargets[i][test_from_batch_index] ~= 0 then
+                expected_output = Index2Vocab[decoderTargets[i][test_from_batch_index]]
+                str_sent_target = str_sent_target .. " " .. expected_output
+            end
+        end
+
+        print("ACTUAL SUMMARY    : " .. str_sent_target .. "\nPREDICTED SUMMARY : " .. str_sent .. " : " .. loss_x .. " : " .. tmp_err/(tmp-1)*100)
     end
 
-    print('---->DONE with feval')
     return loss_x, dl_dx
 end
 
@@ -198,7 +243,7 @@ function getVocab()
 
     line = file_txt:read():lower()
     while line~=nil do
-        if Vocab[line] == nil then 
+        if Vocab[line] == nil and line:match('.*[0-9]*.*') ~= nil then 
             VocabSize = VocabSize + 1
             Vocab[line] = VocabSize
             Index2Vocab[VocabSize] = line
@@ -221,7 +266,7 @@ function getVocab()
     numDocumentsTraversed = 0
     line = file_smy:read():lower()
     while line~=nil do 
-        if Vocab[line] == nil then
+        if Vocab[line] == nil and line:match('.*[0-9]*.*') ~= nil then
             VocabSize = VocabSize + 1
             Vocab[line] = VocabSize 
             Index2Vocab[VocabSize] = line
@@ -248,6 +293,7 @@ end
 --Get Vocab Table 
 print("Getting Vocabulary...")
 getVocab()
+print('Vocaulary Size : ' .. VocabSize)
 print("Done")
 
 print('Building Model')
@@ -272,7 +318,7 @@ print('Done')
 
 print('Getting sgd_params')
 sgd_params = {
-    learningRate = 5e-1,--changed from 1e-2
+    learningRate = 0.1,--changed from 1e-2
     learningRateDecay = 1e-4,
     weightDecay = 0,
     momentum = 0.5
@@ -280,24 +326,42 @@ sgd_params = {
 print('Done')
 
 print('Training')
-
+str_error = "batchSize : " .. batchSize .. "; Reviews per Epoch " .. numDocuments .. ";\nMean -> Median -> Variance\n"
 for j=1,10000 do
-	print("EPOCH: "..j)
+    print("------------EPOCH: "..j.."---------------")
 	file_txt = io.open('text_words.csv','r')
 	file_smy = io.open('summary_words.csv','r')
 
-    
+    epoch_misclassificationError = torch.FloatTensor(numDocuments/batchSize)
+    epoch_NLLError = torch.FloatTensor(numDocuments/batchSize)
+
     for i = 1, numDocuments/batchSize do	
-	_, fs = optim.sgd(feval,x, sgd_params)
-        
-    model.decoder:forget()
-    model.encoder:forget()
+        _, fs = optim.sgd(feval,x, sgd_params)
+            
+        model.decoder:forget()
+        model.encoder:forget()
 
-    print('error for Batch ' .. sgd_params.evalCounter  .. ' is ' .. " Number Reviews : ".. sgd_params.evalCounter*batchSize .. " : ".. fs[1])
-
-	if sgd_params.evalCounter%1000 == 0 then
-        torch.save('model_tmp', model)
+        print('error for Batch ' .. sgd_params.evalCounter  .. ' is ' .. " Number Reviews : ".. sgd_params.evalCounter*batchSize .. " : ".. fs[1])
+        str_error = str_error .. fs[1] ..'\n'
+        epoch_NLLError[i] = fs[1]
     end
-end
+
+        print("NLL Error Mean     : " .. torch.mean(epoch_NLLError))
+        print("NLL Error Median   : " .. torch.median(epoch_NLLError)[1])
+        print("NLL Error Std Dev  : " .. torch.std(epoch_NLLError))
+       
+
+        error_file = io.open('Models/error_log',"w")
+        error_file:write(str_error)
+        error_file:close()
+
+        if j%3==0 then 
+            save_model = {}
+            save_model['model'] = model
+            save_model['Vocab'] = Vocab
+            save_model['Index2Vocab'] = Index2Vocab
+            str_save = 'Models/model' .. sgd_params.evalCounter*batchSize
+            torch.save(str_save, save_model)
+        end
 end
 print('Done')

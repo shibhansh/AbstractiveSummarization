@@ -12,6 +12,9 @@ function Seq2Seq:buildModel()
   self.encoder:add(nn.LookupTableMaskZero(self.vocabSize, self.hiddenSize))
   self.encoderLSTM = nn.FastLSTM(self.hiddenSize, self.hiddenSize):maskZero(1)
   self.encoder:add(nn.Sequencer(self.encoderLSTM))
+
+  self.encoder:add(nn.Sequencer(nn.FastLSTM(self.hiddenSize,self.hiddenSize)))
+
   self.encoder:add(nn.Select(1,-1))
 
   self.decoder = nn.Sequential()
