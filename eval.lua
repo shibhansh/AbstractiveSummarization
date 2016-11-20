@@ -122,50 +122,52 @@ end
 
 --*************************************************************
 eval = function()
-    --print('---->getting NextBatch()')
-    local encoderInputs, decoderInputs, decoderTargets = nextBatch()
-    --print('---->Done getting NextBatch()')
+    evalText = io.open('evalText.txt','w')
+    evalUserSmy = io.open('evalUserSummary.txt','w')
+    evalPredSmy = io.open('evalPredSummary.txt','w')
 
-    --forward pass
-    --print('---->encoder forward')
-    encoderOutput = model.encoder:forward(encoderInputs) 
-    --print('---->DONE encoder forward')
+    for i = 1,200 do
+        model.encoder:forget()
+        model.decoder:forget()
+        print('Evaulated for : ' .. i*batchSize .. 'Reviews')
+        local encoderInputs, decoderInputs, decoderTargets = nextBatch()
+       
+        for batchSize_ind = 1,batchSize do
+            str_sent = "" 
+            enc_batch_size = encoderInputs:select(2,batchSize_ind)
 
-    --print('---->forwardConnect')
-    model:forwardConnect(encoderInputs:size(1))
-    --print('---->DONE encoder forward')
+            for ii = 1,(#enc_batch_size)[1] do   
+                if enc_batch_size[ii] ~= 0 then
+                    local word = Index2Vocab[enc_batch_size[ii]]
+                    str_sent = str_sent .. " " .. word
+                end
+            end 
+            evalText:write(str_sent .. '\n')
 
-    --print('---->decoder forward')
-    decoderOutput = model.decoder:forward(decoderInputs)
-    --print('---->DONE decoder forward')
+            str_sent = "" 
+            decoder_batch_size = decoderTargets:select(2,batchSize_ind)
 
-    --print('---->criterion forward')
-    local loss_x = model.criterion:forward(decoderOutput, decoderTargets)
-    --print('---->DONE criterion forward')
-   
-    for batchSize_ind = 1,batchSize do
-        print('\n\n\n___________________________________________')
-        str_sent = "" 
-        enc_batch_size = encoderInputs:select(2,batchSize_ind)
-        for ii = 1,(#enc_batch_size)[1] do   
-            if enc_batch_size[ii] ~= 0 then
-                local word = Index2Vocab[enc_batch_size[ii]]
-                str_sent = str_sent .. " " .. word
+            for ii = 1,(#decoder_batch_size)[1] do
+                if decoder_batch_size[ii] ~= 0 then
+                    local word = Index2Vocab[decoder_batch_size[ii]]
+                    str_sent = str_sent .. " " .. word
+                end
+            end 
+            evalUserSmy:write(str_sent .. '\n')
+
+            wordIds, probabilities = model:eval(encoderInputs:select(2,batchSize_ind))
+            str_sent=""
+            for _tmp, ind in ipairs(wordIds) do 
+                local word = Index2Vocab[ind[1]]
+                str_sent = str_sent .." ".. word
             end
-        end
+            evalPredSmy:write(str_sent .. "\n")
 
-        print(str_sent .. '\n\n')
-        --print(encoderInputs)
-        wordIds, probabilities = model:eval(encoderInputs:select(2,batchSize_ind))
-        str_sent=""
-        for _tmp, ind in ipairs(wordIds) do 
-            local word = Index2Vocab[ind[1]]
-            str_sent = str_sent .." ".. word
         end
-
-        print(str_sent .. " : " .. loss_x)
     end
-    return wordIds, decoderTargets
+    evalText:close()
+    evalUserSmy:close()
+    evalPredSmy:close()
 end
 
 --*************************************************************
@@ -190,14 +192,15 @@ predict = function(text)
     end
 
     local wordIds, probabilities = model:eval(encoderInputs)
-        str_sent=""
-        for _tmp, ind in ipairs(wordIds) do 
-            local word = Index2Vocab[ind[1]]
-            str_sent = str_sent .." ".. word
-        end
-        print(str_sent .. " : " )
-        model.encoder:forget()
-        model.decoder:forget()
+
+    str_sent=""
+    for _tmp, ind in ipairs(wordIds) do 
+        local word = Index2Vocab[ind[1]]
+        str_sent = str_sent .." ".. word
+    end
+    print(str_sent .. " : " )
+    model.encoder:forget()
+    model.decoder:forget()
 end
 
 

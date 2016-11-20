@@ -14,6 +14,7 @@ function Seq2Seq:buildModel()
   self.encoder:add(nn.Sequencer(self.encoderLSTM))
 
   self.encoder:add(nn.Sequencer(nn.FastLSTM(self.hiddenSize,self.hiddenSize)))
+  self.encoder:add(nn.Sequencer(nn.FastLSTM(self.hiddenSize,self.hiddenSize)))
 
   self.encoder:add(nn.Select(1,-1))
 
