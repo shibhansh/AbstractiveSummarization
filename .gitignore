@@ -9,4 +9,5 @@ text_words.csv
 summary_words.csv
 test_text_words.csv 
 test_summary_words.csv
-
+models/
+Evaluations/
