@@ -13,7 +13,7 @@ file_txt=io.open('test_text_words.csv','r')
 file_smy=io.open('test_summary_words.csv','r')
 
 batchSize = 5
-numDocuments = 5000
+numDocuments = 100
 hiddenSize = 1000
 
 
@@ -123,10 +123,10 @@ end
 --*************************************************************
 eval = function()
     evalText = io.open('evalText.txt','w')
-    evalUserSmy = io.open('evalUserSummary.txt','w')
-    evalPredSmy = io.open('evalPredSummary.txt','w')
+    evalUserSmy = io.open('target_summary.txt','w')
+    evalPredSmy = io.open('predicted_summary.txt','w')
 
-    for i = 1,200 do
+    for i = 1,numDocuments/batchSize do
         model.encoder:forget()
         model.decoder:forget()
         print('Evaulated for : ' .. i*batchSize .. 'Reviews')
